@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vlad3.WebControl", "Vlad3.WebControl\Vlad3.WebControl.csproj", "{BB174DC2-6485-4F01-B9EB-01935FD91F79}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BB174DC2-6485-4F01-B9EB-01935FD91F79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BB174DC2-6485-4F01-B9EB-01935FD91F79}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BB174DC2-6485-4F01-B9EB-01935FD91F79}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BB174DC2-6485-4F01-B9EB-01935FD91F79}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
