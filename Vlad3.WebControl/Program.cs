@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using Vlad3.Application.Auth;
 using Vlad3.Application.Bots;
 using Vlad3.Application.DependencyInjection;
@@ -15,6 +16,29 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { 
+        Title = "Vlad3.WebControl", 
+        Version = "v1" 
+    });
+    
+    c.AddSecurityDefinition("bearer", new OpenApiSecurityScheme {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Введите JWT токен без префикса Bearer (он будет автодобавлен)"
+    });
+    
+    c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("bearer", document)] = []
+    });
+});
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Auth:Jwt"));
 builder.Services.Configure<AdminSeedOptions>(builder.Configuration.GetSection("Auth:SeedAdmin"));
@@ -59,17 +83,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole(UserRoles.Admin));
-    options.AddPolicy("OperatorOrAdmin", policy => policy.RequireRole(UserRoles.Admin, UserRoles.Operator));
-});
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("AdminOnly", policy => policy.RequireRole(UserRoles.Admin))
+    .AddPolicy("OperatorOrAdmin", policy => policy.RequireRole(UserRoles.Admin, UserRoles.Operator));
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
