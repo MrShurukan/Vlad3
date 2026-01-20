@@ -9,6 +9,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.2"/>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -16,5 +17,12 @@
         <Link>.dockerignore</Link>
       </Content>
     </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vlad3.Application\Vlad3.Application.csproj" />
+    <ProjectReference Include="..\Vlad3.Bots.Discord\Vlad3.Bots.Discord.csproj" />
+    <ProjectReference Include="..\Vlad3.Bots.TeamSpeak\Vlad3.Bots.TeamSpeak.csproj" />
+    <ProjectReference Include="..\Vlad3.Core\Vlad3.Core.csproj" />
+  </ItemGroup>
 
 </Project>

@@ -1,41 +1,87 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Vlad3.Application.Auth;
+using Vlad3.Application.Bots;
+using Vlad3.Application.DependencyInjection;
+using Vlad3.Application.Options;
+using Vlad3.Application.Playlists;
+using Vlad3.Application.Storage;
+using Vlad3.Application.Users;
+using Vlad3.Core.Models;
+using Vlad3.WebControl.Middleware;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Auth:Jwt"));
+builder.Services.Configure<AdminSeedOptions>(builder.Configuration.GetSection("Auth:SeedAdmin"));
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+
+builder.Services.AddSingleton<StoragePathResolver>();
+builder.Services.AddSingleton<PasswordHasher>();
+builder.Services.AddSingleton<IUserStore, UserStore>();
+builder.Services.AddSingleton<UserService>();
+builder.Services.AddSingleton<AuthService>();
+builder.Services.AddSingleton<ITokenService, JwtTokenService>();
+builder.Services.AddSingleton<UserSeeder>();
+
+builder.Services.AddSingleton<IBotConfigurationStore, BotConfigurationStore>();
+builder.Services.AddSingleton<IPlaylistService, PlaylistService>();
+builder.Services.AddSingleton<BotFactoryRegistry>();
+builder.Services.AddSingleton<IBotManager, BotManager>();
+builder.Services.AddHostedService<BotManagerHostedService>();
+builder.Services.AddAudioBotFactories();
+
+var jwtOptions = builder.Configuration.GetSection("Auth:Jwt").Get<JwtOptions>() ?? new JwtOptions();
+if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey))
+{
+    throw new InvalidOperationException("Auth:Jwt:SigningKey is required.");
+}
+
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey));
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = signingKey,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole(UserRoles.Admin));
+    options.AddPolicy("OperatorOrAdmin", policy => policy.RequireRole(UserRoles.Admin, UserRoles.Operator));
+});
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();
+app.UseMiddleware<ApiExceptionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
 
-var summaries = new[]
+using (var scope = app.Services.CreateScope())
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-    {
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-                new WeatherForecast
-                (
-                    DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                    Random.Shared.Next(-20, 55),
-                    summaries[Random.Shared.Next(summaries.Length)]
-                ))
-            .ToArray();
-        return forecast;
-    })
-    .WithName("GetWeatherForecast");
+    var seeder = scope.ServiceProvider.GetRequiredService<UserSeeder>();
+    await seeder.SeedAsync();
+}
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

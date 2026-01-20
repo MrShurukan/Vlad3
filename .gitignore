@@ -3,3 +3,9 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+
+Vlad3.WebControl/appsettings.json
+Vlad3.WebControl/data/*
+.idea/.idea.Vlad3/.idea/
+
+.vscode/
