@@ -32,4 +32,5 @@ public interface IBotManager
     Task StopAsync(string botId, CancellationToken cancellationToken = default);
     Task NextAsync(string botId, CancellationToken cancellationToken = default);
     Task PreviousAsync(string botId, CancellationToken cancellationToken = default);
+    Task<bool> ToggleAutoNextAsync(string botId, CancellationToken cancellationToken = default);
 }

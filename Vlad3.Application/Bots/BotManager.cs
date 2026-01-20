@@ -311,6 +311,21 @@ public sealed class BotManager : IBotManager
         await runtime.Bot.PlayAsync(trackInfo, cancellationToken);
     }
 
+    public async Task<bool> ToggleAutoNextAsync(string botId, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var runtime = GetRuntime(botId);
+            runtime.AutoNextEnabled = !runtime.AutoNextEnabled;
+            return runtime.AutoNextEnabled;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<BotRuntime> GetRuntimeAsync(string botId, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -343,7 +358,8 @@ public sealed class BotManager : IBotManager
             state.ConnectedChannelId,
             state.ConnectedChannelName,
             runtime.Playback.PlaylistId,
-            runtime.Playback.TrackId);
+            runtime.Playback.TrackId,
+            runtime.AutoNextEnabled);
 
         return new BotSummary(runtime.Configuration, enrichedState);
     }
@@ -359,6 +375,7 @@ public sealed class BotManager : IBotManager
 
     private async Task HandleBotCommandAsync(string botId, AudioBotCommand command)
     {
+        _logger.LogInformation("Processing command {Command} for bot {BotId}", command, botId);
         try
         {
             switch (command.Type)
@@ -383,6 +400,16 @@ public sealed class BotManager : IBotManager
                     break;
                 case BotCommandType.Disconnect:
                     await DisconnectAsync(botId, CancellationToken.None);
+                    break;
+                case BotCommandType.ToggleAutoNext:
+                    await ToggleAutoNextAsync(botId, CancellationToken.None);
+                    break;
+                case BotCommandType.PlaybackFinished:
+                    var runtime = await GetRuntimeAsync(botId, CancellationToken.None);
+                    if (runtime.AutoNextEnabled)
+                    {
+                        await NextAsync(botId, CancellationToken.None);
+                    }
                     break;
             }
         }
@@ -470,11 +497,13 @@ public sealed class BotManager : IBotManager
         {
             Bot = bot;
             Configuration = configuration;
+            AutoNextEnabled = bot.State.AutoNextEnabled;
         }
 
         public IAudioBot Bot { get; }
         public BotConfiguration Configuration { get; }
         public BotPlaybackContext Playback { get; } = new();
+        public bool AutoNextEnabled { get; set; }
     }
 
     private sealed class BotPlaybackContext

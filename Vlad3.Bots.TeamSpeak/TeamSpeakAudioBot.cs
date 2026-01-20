@@ -16,7 +16,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         _configuration = configuration;
         _logger = logger;
         _channels = BuildChannels(configuration);
-        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null);
+        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, true);
     }
 
     public string Id => _configuration.Id;

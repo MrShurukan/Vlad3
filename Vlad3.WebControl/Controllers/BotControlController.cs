@@ -82,6 +82,15 @@ public sealed class BotControlController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("autonext/toggle")]
+    public async Task<ActionResult<AutoNextStateDto>> ToggleAutoNext(
+        [FromRoute] string botId,
+        CancellationToken cancellationToken)
+    {
+        var enabled = await _botManager.ToggleAutoNextAsync(botId, cancellationToken);
+        return new AutoNextStateDto(enabled);
+    }
+
     private static BotStateDto MapState(BotState state)
         => new(
             state.ConnectionState,
@@ -89,5 +98,6 @@ public sealed class BotControlController : ControllerBase
             state.ConnectedChannelId,
             state.ConnectedChannelName,
             state.CurrentPlaylistId,
-            state.CurrentTrackId);
+            state.CurrentTrackId,
+            state.AutoNextEnabled);
 }

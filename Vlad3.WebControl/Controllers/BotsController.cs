@@ -86,6 +86,7 @@ public sealed class BotsController : ControllerBase
                 state.ConnectedChannelId,
                 state.ConnectedChannelName,
                 state.CurrentPlaylistId,
-                state.CurrentTrackId));
+                state.CurrentTrackId,
+                state.AutoNextEnabled));
     }
 }

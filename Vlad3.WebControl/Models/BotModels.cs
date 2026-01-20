@@ -26,10 +26,13 @@ public sealed record BotStateDto(
     string? ConnectedChannelId,
     string? ConnectedChannelName,
     string? CurrentPlaylistId,
-    string? CurrentTrackId);
+    string? CurrentTrackId,
+    bool AutoNextEnabled);
 
 public sealed record BotTypeDto(string Type, string DisplayName);
 
 public sealed record ConnectBotRequest(string ChannelId);
 
 public sealed record PlayBotRequest(string PlaylistId, string? TrackId);
+
+public sealed record AutoNextStateDto(bool Enabled);

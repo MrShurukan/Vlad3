@@ -39,8 +39,8 @@ public sealed class DiscordAudioBot : IAudioBot
         _configuration = configuration;
         _logger = logger;
         _netCordLogger = new NetCordLoggerAdapter(logger);
-        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null);
-
+        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, true);
+        
         _client = new GatewayClient(new BotToken(configuration.ApiKey), new GatewayClientConfiguration
         {
             Intents = GatewayIntents.Guilds | GatewayIntents.GuildVoiceStates,
@@ -198,7 +198,7 @@ public sealed class DiscordAudioBot : IAudioBot
                     await opusStream.FlushAsync(token).ConfigureAwait(false);
                     await process.WaitForExitAsync(token).ConfigureAwait(false);
                 },
-                () =>
+                completedNaturally =>
                 {
                     if (_playback == playback)
                     {
@@ -206,6 +206,10 @@ public sealed class DiscordAudioBot : IAudioBot
                     }
 
                     _state = _state with { PlaybackState = BotPlaybackState.Stopped };
+                    if (completedNaturally)
+                    {
+                        _ = RaiseCommandAsync(new AudioBotCommand(BotCommandType.PlaybackFinished));
+                    }
                 },
                 exception => _logger.LogWarning(exception, "Discord bot {Label} failed to play {Track}", Label, track.Name));
         }
@@ -334,6 +338,12 @@ public sealed class DiscordAudioBot : IAudioBot
                 "Previous track",
                 new Func<ApplicationCommandContext, Task<string>>(context =>
                     RaiseCommandAsync(context, new AudioBotCommand(BotCommandType.Previous), "Previous track."))));
+
+        _commandService.AddSlashCommand(
+            CreateGuildCommand(
+                "autonext",
+                "Toggle auto-next",
+                new Func<ApplicationCommandContext, Task<string>>(ToggleAutoNextAsync)));
     }
 
     private static SlashCommandBuilder CreateGuildCommand(string name, string description, Delegate handler)
@@ -371,6 +381,9 @@ public sealed class DiscordAudioBot : IAudioBot
             $"Playing playlist {playlistId}.");
     }
 
+    private Task<string> ToggleAutoNextAsync(ApplicationCommandContext context)
+        => RaiseCommandAsync(context, new AudioBotCommand(BotCommandType.ToggleAutoNext), "Auto-next toggled.");
+
     private async Task<string> RaiseCommandAsync(ApplicationCommandContext context, AudioBotCommand command, string successMessage)
     {
         var handler = CommandReceived;
@@ -391,6 +404,28 @@ public sealed class DiscordAudioBot : IAudioBot
         {
             _logger.LogWarning(ex, "Discord bot {Label} failed to process command {CommandType}", Label, command.Type);
             return "Command failed.";
+        }
+    }
+
+    private Task RaiseCommandAsync(AudioBotCommand command)
+    {
+        var handler = CommandReceived;
+        if (handler is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            var tasks = handler.GetInvocationList()
+                .OfType<Func<AudioBotCommand, Task>>()
+                .Select(h => h(command));
+            return Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Discord bot {Label} failed to broadcast command {CommandType}", Label, command.Type);
+            return Task.CompletedTask;
         }
     }
 
@@ -578,6 +613,7 @@ public sealed class DiscordAudioBot : IAudioBot
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private Task? _task;
         private Process? _process;
+        private int _stopRequested;
 
         public PlaybackSession(AudioTrackInfo track)
         {
@@ -590,13 +626,15 @@ public sealed class DiscordAudioBot : IAudioBot
             _process = process;
         }
 
-        public void Start(Func<CancellationToken, Task> work, Action onCompleted, Action<Exception> onError)
+        public void Start(Func<CancellationToken, Task> work, Action<bool> onCompleted, Action<Exception> onError)
         {
             _task = Task.Run(async () =>
             {
+                var completedSuccessfully = false;
                 try
                 {
                     await work(CancellationToken).ConfigureAwait(false);
+                    completedSuccessfully = true;
                 }
                 catch (OperationCanceledException)
                 {
@@ -607,14 +645,17 @@ public sealed class DiscordAudioBot : IAudioBot
                 }
                 finally
                 {
+                    var stopped = _stopRequested == 1 || CancellationToken.IsCancellationRequested;
+                    var completedNaturally = completedSuccessfully && !stopped;
                     CleanupProcess();
-                    onCompleted();
+                    onCompleted(completedNaturally);
                 }
             });
         }
 
         public async Task StopAsync()
         {
+            Interlocked.Exchange(ref _stopRequested, 1);
             _cancellationTokenSource.Cancel();
             if (_process is { HasExited: false })
             {

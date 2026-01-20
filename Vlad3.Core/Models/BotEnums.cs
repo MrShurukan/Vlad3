@@ -65,5 +65,15 @@ public enum BotCommandType
     /// <summary>
     /// Отключение от канала.
     /// </summary>
-    Disconnect = 5
+    Disconnect = 5,
+
+    /// <summary>
+    /// Переключение режима авто-перехода к следующему треку.
+    /// </summary>
+    ToggleAutoNext = 6,
+
+    /// <summary>
+    /// Уведомление о завершении текущего трека.
+    /// </summary>
+    PlaybackFinished = 7
 }
