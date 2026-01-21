@@ -40,6 +40,41 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+#region CorsPolicy
+
+var allowedOrigins = new[]
+{
+    "https://vlad.mrshurukan.ru",
+};
+
+
+const string myAllowSpecificOrigins = "CorsPolicy";
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(name: myAllowSpecificOrigins,
+        policy =>
+        {
+            policy.AllowAnyMethod()
+                .AllowAnyHeader()
+                .WithExposedHeaders("Content-Disposition")
+                .AllowCredentials();
+
+            policy.SetIsOriginAllowed(origin =>
+            {
+                var uri = new Uri(origin).Host;
+#if DEBUG
+                if (uri is "localhost" or "127.0.0.1")
+                    return true;
+#endif
+
+                return allowedOrigins.Contains(origin);
+            });
+        });
+});
+
+#endregion
+
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Auth:Jwt"));
 builder.Services.Configure<AdminSeedOptions>(builder.Configuration.GetSection("Auth:SeedAdmin"));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
@@ -88,6 +123,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("OperatorOrAdmin", policy => policy.RequireRole(UserRoles.Admin, UserRoles.Operator));
 
 var app = builder.Build();
+
+app.UseCors(myAllowSpecificOrigins);
 
 if (app.Environment.IsDevelopment())
 {

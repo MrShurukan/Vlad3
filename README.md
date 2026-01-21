@@ -13,7 +13,7 @@ Vlad3 — серверный менеджер для управления ауд
 ## Реализации ботов
 
 - **Discord** — `Vlad3.Bots.Discord` на базе NetCord (Gateway + Voice + Slash‑commands).
-- **TeamSpeak** — `Vlad3.Bots.TeamSpeak` (минимальная заглушка под будущую интеграцию).
+- **TeamSpeak** — `Vlad3.Bots.TeamSpeak` на базе Splamy.TSLib (full‑client + voice).
 
 ## Конфигурация Discord‑бота
 
@@ -24,6 +24,31 @@ Vlad3 — серверный менеджер для управления ауд
 - `settings.commandGuildId` — ID сервера для быстрой регистрации slash‑команд. Если не задано — команды регистрируются глобально (дольше).
 - `settings.ffmpegPath` — путь к `ffmpeg` (если не в `PATH`).
 
+## Конфигурация TeamSpeak‑бота
+
+Для создания TeamSpeak‑бота через API требуется указать:
+
+- `settings.address` — адрес вида `host:port` (альтернатива `settings.host` + `settings.port`).
+- `settings.host` / `settings.port` — адрес и порт TeamSpeak (по умолчанию `9987`).
+- `settings.nickname` — имя клиента (если не задано, берется label бота).
+- `settings.serverPassword` — пароль сервера (если требуется).
+- `settings.defaultChannel` — канал по умолчанию (путь или id, можно пустым).
+- `settings.channelPassword` — пароль канала (если требуется).
+- `settings.identity` — TeamSpeak identity (если есть).
+- `settings.identityPrivateKey` / `settings.identityOffset` — альтернативный формат identity (если задано).
+- `settings.ffmpegPath` — путь к `ffmpeg` (если не в `PATH`).
+- `settings.autoNext` — включить авто‑переход (по умолчанию `true`).
+
+## Команды TeamSpeak (чат)
+
+Примеры команд, которые понимает бот:
+
+- `!play <playlistId> [trackId]`
+- `!stop`, `!next`, `!previous`
+- `!connect <channelId>`, `!disconnect`
+- `!join` — подключиться в канал автора команды
+- `!autonext` — переключение auto‑next
+
 ## Зависимости для Voice (Discord)
 
 Для корректной работы голосового режима:
@@ -33,6 +58,4 @@ Vlad3 — серверный менеджер для управления ауд
 - [Инструкция от NetCord](https://netcord.dev/guides/basic-concepts/installing-native-dependencies.html?tabs=dynamic).
 
 ## TODO:
-- TeamSpeak
-- Автоплей некст трека
 - UI
