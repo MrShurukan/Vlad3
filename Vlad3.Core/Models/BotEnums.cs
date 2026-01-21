@@ -68,12 +68,31 @@ public enum BotCommandType
     Disconnect = 5,
 
     /// <summary>
-    /// Переключение режима авто-перехода к следующему треку.
+    /// Изменить тип движения по плейлисту.
     /// </summary>
-    ToggleAutoNext = 6,
+    ChangePlaylistMovementType = 6,
 
     /// <summary>
     /// Уведомление о завершении текущего трека.
     /// </summary>
     PlaybackFinished = 7
+}
+
+/// <summary>
+/// Тип движения по плейлисту.
+/// </summary>
+public enum PlaylistMovementType
+{
+    /// <summary>
+    /// После завершения трека бот останавливается.
+    /// </summary>
+    None = 0,
+    /// <summary>
+    /// После завершения трека бот переходит на следующий.
+    /// </summary>
+    AutoNext = 1,
+    /// <summary>
+    /// После завершения трека бот повторяет его ещё раз.
+    /// </summary>
+    RepeatCurrent = 2
 }

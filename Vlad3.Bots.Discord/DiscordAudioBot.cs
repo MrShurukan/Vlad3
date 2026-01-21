@@ -39,7 +39,7 @@ public sealed class DiscordAudioBot : IAudioBot
         _configuration = configuration;
         _logger = logger;
         _netCordLogger = new NetCordLoggerAdapter(logger);
-        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, true);
+        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, PlaylistMovementType.AutoNext);
         
         _client = new GatewayClient(new BotToken(configuration.ApiKey), new GatewayClientConfiguration
         {
@@ -338,12 +338,6 @@ public sealed class DiscordAudioBot : IAudioBot
                 "Previous track",
                 new Func<ApplicationCommandContext, Task<string>>(context =>
                     RaiseCommandAsync(context, new AudioBotCommand(BotCommandType.Previous), "Previous track."))));
-
-        _commandService.AddSlashCommand(
-            CreateGuildCommand(
-                "autonext",
-                "Toggle auto-next",
-                new Func<ApplicationCommandContext, Task<string>>(ToggleAutoNextAsync)));
     }
 
     private static SlashCommandBuilder CreateGuildCommand(string name, string description, Delegate handler)
@@ -380,9 +374,6 @@ public sealed class DiscordAudioBot : IAudioBot
             new AudioBotCommand(BotCommandType.Play, playlistId.Trim(), trackId),
             $"Playing playlist {playlistId}.");
     }
-
-    private Task<string> ToggleAutoNextAsync(ApplicationCommandContext context)
-        => RaiseCommandAsync(context, new AudioBotCommand(BotCommandType.ToggleAutoNext), "Auto-next toggled.");
 
     private async Task<string> RaiseCommandAsync(ApplicationCommandContext context, AudioBotCommand command, string successMessage)
     {

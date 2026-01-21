@@ -87,6 +87,6 @@ public sealed class BotsController : ControllerBase
                 state.ConnectedChannelName,
                 state.CurrentPlaylistId,
                 state.CurrentTrackId,
-                state.AutoNextEnabled));
+                state.PlaylistMovementType));
     }
 }

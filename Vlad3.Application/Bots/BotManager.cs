@@ -311,14 +311,14 @@ public sealed class BotManager : IBotManager
         await runtime.Bot.PlayAsync(trackInfo, cancellationToken);
     }
 
-    public async Task<bool> ToggleAutoNextAsync(string botId, CancellationToken cancellationToken = default)
+    public async Task<PlaylistMovementType> ChangePlaylistMovementType(string botId, PlaylistMovementType type, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var runtime = GetRuntime(botId);
-            runtime.AutoNextEnabled = !runtime.AutoNextEnabled;
-            return runtime.AutoNextEnabled;
+            runtime.PlaylistMovementType = type;
+            return runtime.PlaylistMovementType;
         }
         finally
         {
@@ -359,7 +359,7 @@ public sealed class BotManager : IBotManager
             state.ConnectedChannelName,
             runtime.Playback.PlaylistId,
             runtime.Playback.TrackId,
-            runtime.AutoNextEnabled);
+            runtime.PlaylistMovementType);
 
         return new BotSummary(runtime.Configuration, enrichedState);
     }
@@ -401,14 +401,19 @@ public sealed class BotManager : IBotManager
                 case BotCommandType.Disconnect:
                     await DisconnectAsync(botId, CancellationToken.None);
                     break;
-                case BotCommandType.ToggleAutoNext:
-                    await ToggleAutoNextAsync(botId, CancellationToken.None);
+                case BotCommandType.ChangePlaylistMovementType:
+                    await ChangePlaylistMovementType(botId, command.PlaylistMovementType ?? PlaylistMovementType.None, CancellationToken.None);
                     break;
                 case BotCommandType.PlaybackFinished:
                     var runtime = await GetRuntimeAsync(botId, CancellationToken.None);
-                    if (runtime.AutoNextEnabled)
+                    switch (runtime.PlaylistMovementType)
                     {
-                        await NextAsync(botId, CancellationToken.None);
+                        case PlaylistMovementType.AutoNext:
+                            await NextAsync(botId, CancellationToken.None);
+                            break;
+                        case PlaylistMovementType.RepeatCurrent:
+                            await PlayAsync(botId, runtime.Playback.PlaylistId!, runtime.Playback.TrackId!, CancellationToken.None);
+                            break;
                     }
                     break;
             }
@@ -497,13 +502,13 @@ public sealed class BotManager : IBotManager
         {
             Bot = bot;
             Configuration = configuration;
-            AutoNextEnabled = bot.State.AutoNextEnabled;
+            PlaylistMovementType = bot.State.PlaylistMovementType;
         }
 
         public IAudioBot Bot { get; }
         public BotConfiguration Configuration { get; }
         public BotPlaybackContext Playback { get; } = new();
-        public bool AutoNextEnabled { get; set; }
+        public PlaylistMovementType PlaylistMovementType { get; set; }
     }
 
     private sealed class BotPlaybackContext

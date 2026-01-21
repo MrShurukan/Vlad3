@@ -9,7 +9,7 @@ namespace Vlad3.Core.Models;
 /// <param name="ConnectedChannelName">Название подключенного канала.</param>
 /// <param name="CurrentPlaylistId">Текущий плейлист.</param>
 /// <param name="CurrentTrackId">Текущий трек.</param>
-/// <param name="AutoNextEnabled">Включен ли авто-переход на следующий трек.</param>
+/// <param name="PlaylistMovementType">Тип движения по плейлисту.</param>
 public sealed record BotState(
     BotConnectionState ConnectionState,
     BotPlaybackState PlaybackState,
@@ -17,4 +17,4 @@ public sealed record BotState(
     string? ConnectedChannelName,
     string? CurrentPlaylistId,
     string? CurrentTrackId,
-    bool AutoNextEnabled);
+    PlaylistMovementType PlaylistMovementType);

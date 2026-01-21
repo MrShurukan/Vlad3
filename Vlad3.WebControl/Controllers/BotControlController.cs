@@ -81,14 +81,15 @@ public sealed class BotControlController : ControllerBase
         await _botManager.PreviousAsync(botId, cancellationToken);
         return NoContent();
     }
-
-    [HttpPost("autonext/toggle")]
-    public async Task<ActionResult<AutoNextStateDto>> ToggleAutoNext(
+    
+    [HttpPost("playlistMovementType/{playlistMovementType}")]
+    public async Task<ActionResult<PlaylistMovementTypeStateDto>> ToggleAutoNext(
         [FromRoute] string botId,
+        [FromRoute] PlaylistMovementType playlistMovementType,
         CancellationToken cancellationToken)
     {
-        var enabled = await _botManager.ToggleAutoNextAsync(botId, cancellationToken);
-        return new AutoNextStateDto(enabled);
+        var movementType = await _botManager.ChangePlaylistMovementType(botId, playlistMovementType, cancellationToken);
+        return new PlaylistMovementTypeStateDto(movementType);
     }
 
     private static BotStateDto MapState(BotState state)
@@ -99,5 +100,5 @@ public sealed class BotControlController : ControllerBase
             state.ConnectedChannelName,
             state.CurrentPlaylistId,
             state.CurrentTrackId,
-            state.AutoNextEnabled);
+            state.PlaylistMovementType);
 }

@@ -27,7 +27,7 @@ public sealed record BotStateDto(
     string? ConnectedChannelName,
     string? CurrentPlaylistId,
     string? CurrentTrackId,
-    bool AutoNextEnabled);
+    PlaylistMovementType PlaylistMovementType);
 
 public sealed record BotTypeDto(string Type, string DisplayName);
 
@@ -35,4 +35,4 @@ public sealed record ConnectBotRequest(string ChannelId);
 
 public sealed record PlayBotRequest(string PlaylistId, string? TrackId);
 
-public sealed record AutoNextStateDto(bool Enabled);
+public sealed record PlaylistMovementTypeStateDto(PlaylistMovementType PlaylistMovementType);

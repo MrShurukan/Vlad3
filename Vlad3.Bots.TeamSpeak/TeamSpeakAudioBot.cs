@@ -52,7 +52,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         _client = new TsFullClient();
 
         var autoNextEnabled = TryGetSettingBool(AutoNextSetting, out var enabled) ? enabled : true;
-        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, autoNextEnabled);
+        _state = new BotState(BotConnectionState.Disconnected, BotPlaybackState.Stopped, null, null, null, null, autoNextEnabled ? PlaylistMovementType.AutoNext : PlaylistMovementType.None);
 
         _client.OnEachTextMessage += (_, message) => _ = HandleTextMessageAsync(message);
         _client.OnDisconnected += (_, args) =>
@@ -450,7 +450,6 @@ public sealed class TeamSpeakAudioBot : IAudioBot
             "connect" when parts.Length >= 2 => new AudioBotCommand(BotCommandType.Connect, ChannelId: parts[1]),
             "join" => TryBuildJoinCommand(message),
             "disconnect" => new AudioBotCommand(BotCommandType.Disconnect),
-            "autonext" => new AudioBotCommand(BotCommandType.ToggleAutoNext),
             _ => null
         };
 

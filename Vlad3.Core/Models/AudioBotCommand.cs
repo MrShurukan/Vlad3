@@ -7,8 +7,10 @@ namespace Vlad3.Core.Models;
 /// <param name="PlaylistId">Идентификатор плейлиста (если применимо).</param>
 /// <param name="TrackId">Идентификатор трека (если применимо).</param>
 /// <param name="ChannelId">Идентификатор канала (если применимо).</param>
+/// <param name="PlaylistMovementType">Тип движения по плейлисту (если применимо).</param>
 public sealed record AudioBotCommand(
     BotCommandType Type,
     string? PlaylistId = null,
     string? TrackId = null,
-    string? ChannelId = null);
+    string? ChannelId = null,
+    PlaylistMovementType? PlaylistMovementType = null);
