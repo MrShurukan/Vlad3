@@ -23,6 +23,7 @@ Vlad3 — серверный менеджер для управления ауд
 - `settings.guildId` — ID сервера (используется для чтения голосовых каналов).
 - `settings.commandGuildId` — ID сервера для быстрой регистрации slash‑команд. Если не задано — команды регистрируются глобально (дольше).
 - `settings.ffmpegPath` — путь к `ffmpeg` (если не в `PATH`).
+- `settings.ffprobePath` — путь к `ffprobe` (если не в `PATH`). Используется для проверки длительности звуковых эффектов и расчёта позиции возобновления.
 
 ## Конфигурация TeamSpeak‑бота
 
@@ -37,6 +38,7 @@ Vlad3 — серверный менеджер для управления ауд
 - `settings.identity` — TeamSpeak identity (если есть).
 - `settings.identityPrivateKey` / `settings.identityOffset` — альтернативный формат identity (если задано).
 - `settings.ffmpegPath` — путь к `ffmpeg` (если не в `PATH`).
+- `settings.ffprobePath` — путь к `ffprobe` (если не в `PATH`). Используется для звуковых эффектов.
 - `settings.autoNext` — включить авто‑переход (по умолчанию `true`).
 
 ## Команды TeamSpeak (чат)
@@ -45,9 +47,33 @@ Vlad3 — серверный менеджер для управления ауд
 
 - `!play <playlistId> [trackId]`
 - `!stop`, `!next`, `!previous`
+- `!effect <playlistId> [trackId]` — проиграть звуковой эффект поверх текущего воспроизведения (длительность эффекта должна быть менее 30 с).
 - `!connect <channelId>`, `!disconnect`
 - `!join` — подключиться в канал автора команды
 - `!autonext` — переключение auto‑next
+
+## Звуковые эффекты
+
+Команда **playEffect** позволяет временно проиграть короткий аудиофайл поверх текущего трека: основной трек ставится на паузу, проигрывается эффект, затем воспроизведение основного трека возобновляется с позиции *пауза + длительность эффекта*.
+
+- **REST**: `POST /api/bots/{botId}/playEffect` с телом `{ "playlistId": "...", "trackId": "..." }` (как у `play`).
+- **Discord**: slash‑команда `/effect playlistId [trackId]`.
+- **TeamSpeak**: `!effect <playlistId> [trackId]`.
+
+Ограничение: длительность файла эффекта должна быть **менее 30 секунд**. Длительность определяется через **ffprobe** при запросе.
+
+## ffprobe
+
+**ffprobe** входит в состав FFmpeg и используется для проверки длительности звуковых эффектов и расчёта позиции возобновления основного трека. Путь к исполняемому файлу можно задать в настройках бота (`settings.ffprobePath`); если не задан — используется `ffprobe` из `PATH`.
+
+Откуда скачать/установить:
+
+- **Официальный сайт**: [ffmpeg.org/download.html](https://ffmpeg.org/download.html) (исходники и ссылки на сборки; ffprobe поставляется вместе с ffmpeg).
+- **Windows**: ffprobe идёт в одной сборке с ffmpeg. Готовые сборки:
+  - [gyan.dev FFmpeg builds](https://www.gyan.dev/ffmpeg/builds/)
+  - [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) (GitHub)
+  - [ffbinaries.com](https://ffbinaries.com/downloads)
+- **Ubuntu / Linux**: пакет `ffmpeg` включает ffprobe. Установка: `sudo apt install ffmpeg`. [Пакеты Ubuntu (Launchpad)](https://launchpad.net/ubuntu/+source/ffmpeg). Для других дистрибутивов см. [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
 
 ## Зависимости для Voice (Discord)
 

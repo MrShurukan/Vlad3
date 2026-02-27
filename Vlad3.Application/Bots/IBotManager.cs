@@ -28,9 +28,11 @@ public interface IBotManager
         string botId,
         string playlistId,
         string? trackId,
+        double? startPositionSeconds = null,
         CancellationToken cancellationToken = default);
     Task StopAsync(string botId, CancellationToken cancellationToken = default);
     Task NextAsync(string botId, CancellationToken cancellationToken = default);
     Task PreviousAsync(string botId, CancellationToken cancellationToken = default);
+    Task PlaySoundEffectAsync(string botId, string playlistId, string? trackId, CancellationToken cancellationToken = default);
     Task<PlaylistMovementType> ChangePlaylistMovementType(string botId, PlaylistMovementType type, CancellationToken cancellationToken = default);
 }

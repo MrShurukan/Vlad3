@@ -227,6 +227,7 @@ public sealed class BotManager : IBotManager
         string botId,
         string playlistId,
         string? trackId,
+        double? startPositionSeconds = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(playlistId))
@@ -244,7 +245,50 @@ public sealed class BotManager : IBotManager
         var trackInfo = await _playlistService.GetTrackFileAsync(playlistId, resolvedTrackId, cancellationToken);
 
         await UpdatePlaybackContextAsync(runtime, playlistId, trackInfo.Id, cancellationToken);
-        await runtime.Bot.PlayAsync(trackInfo, cancellationToken);
+        await runtime.Bot.PlayAsync(trackInfo, startPositionSeconds, cancellationToken);
+    }
+
+    public async Task PlaySoundEffectAsync(string botId, string playlistId, string? trackId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            throw ServiceException.BadRequest("PlaylistId is required.");
+        }
+
+        var runtime = await GetRuntimeAsync(botId, cancellationToken);
+        if (runtime.Bot.State.ConnectionState == BotConnectionState.Disconnected)
+        {
+            throw ServiceException.Conflict("Bot is not connected to a channel.");
+        }
+
+        var resolvedTrackId = await ResolveTrackIdAsync(runtime, playlistId, trackId, cancellationToken);
+        var trackInfo = await _playlistService.GetTrackFileAsync(playlistId, resolvedTrackId, cancellationToken);
+
+        var ffprobePath = runtime.Configuration.Settings.TryGetValue("ffprobePath", out var path) && !string.IsNullOrWhiteSpace(path) ? path : null;
+        var effectDurationSeconds = await AudioDurationHelper.GetDurationSecondsAsync(trackInfo.FilePath, ffprobePath, cancellationToken).ConfigureAwait(false);
+        if (!effectDurationSeconds.HasValue || effectDurationSeconds.Value >= 30)
+        {
+            throw ServiceException.BadRequest("Sound effect duration must be under 30 seconds and detectable via ffprobe.");
+        }
+
+        var savedPlaylistId = runtime.Playback.PlaylistId;
+        var savedTrackId = runtime.Playback.TrackId;
+        var savedPausePositionSeconds = 0.0;
+        var effectDuration = effectDurationSeconds.Value;
+
+        Func<Task>? handler = null;
+        handler = async () =>
+        {
+            runtime.Bot.SoundEffectFinished -= handler!;
+            if (!string.IsNullOrWhiteSpace(savedPlaylistId) && !string.IsNullOrWhiteSpace(savedTrackId))
+            {
+                var resumePositionSeconds = savedPausePositionSeconds + effectDuration;
+                await PlayAsync(botId, savedPlaylistId, savedTrackId, resumePositionSeconds, CancellationToken.None).ConfigureAwait(false);
+            }
+        };
+        runtime.Bot.SoundEffectFinished += handler;
+
+        await runtime.Bot.PlaySoundEffectAsync(trackInfo, pos => savedPausePositionSeconds = pos, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task StopAsync(string botId, CancellationToken cancellationToken = default)
@@ -279,7 +323,7 @@ public sealed class BotManager : IBotManager
         var trackInfo = await _playlistService.GetTrackFileAsync(playlistId, nextTrackId, cancellationToken);
 
         await UpdatePlaybackContextAsync(runtime, playlistId, trackInfo.Id, cancellationToken);
-        await runtime.Bot.PlayAsync(trackInfo, cancellationToken);
+        await runtime.Bot.PlayAsync(trackInfo, null, cancellationToken);
     }
 
     public async Task PreviousAsync(string botId, CancellationToken cancellationToken = default)
@@ -308,7 +352,7 @@ public sealed class BotManager : IBotManager
         var trackInfo = await _playlistService.GetTrackFileAsync(playlistId, previousTrackId, cancellationToken);
 
         await UpdatePlaybackContextAsync(runtime, playlistId, trackInfo.Id, cancellationToken);
-        await runtime.Bot.PlayAsync(trackInfo, cancellationToken);
+        await runtime.Bot.PlayAsync(trackInfo, null, cancellationToken);
     }
 
     public async Task<PlaylistMovementType> ChangePlaylistMovementType(string botId, PlaylistMovementType type, CancellationToken cancellationToken = default)
@@ -381,7 +425,7 @@ public sealed class BotManager : IBotManager
             switch (command.Type)
             {
                 case BotCommandType.Play:
-                    await PlayAsync(botId, command.PlaylistId ?? string.Empty, command.TrackId, CancellationToken.None);
+                    await PlayAsync(botId, command.PlaylistId ?? string.Empty, command.TrackId, null, CancellationToken.None);
                     break;
                 case BotCommandType.Stop:
                     await StopAsync(botId, CancellationToken.None);
@@ -401,6 +445,12 @@ public sealed class BotManager : IBotManager
                 case BotCommandType.Disconnect:
                     await DisconnectAsync(botId, CancellationToken.None);
                     break;
+                case BotCommandType.PlaySoundEffect:
+                    if (!string.IsNullOrWhiteSpace(command.PlaylistId))
+                    {
+                        await PlaySoundEffectAsync(botId, command.PlaylistId, command.TrackId, CancellationToken.None);
+                    }
+                    break;
                 case BotCommandType.ChangePlaylistMovementType:
                     await ChangePlaylistMovementType(botId, command.PlaylistMovementType ?? PlaylistMovementType.None, CancellationToken.None);
                     break;
@@ -412,7 +462,7 @@ public sealed class BotManager : IBotManager
                             await NextAsync(botId, CancellationToken.None);
                             break;
                         case PlaylistMovementType.RepeatCurrent:
-                            await PlayAsync(botId, runtime.Playback.PlaylistId!, runtime.Playback.TrackId!, CancellationToken.None);
+                            await PlayAsync(botId, runtime.Playback.PlaylistId!, runtime.Playback.TrackId!, null, CancellationToken.None);
                             break;
                     }
                     break;

@@ -40,6 +40,8 @@ public sealed class TeamSpeakAudioBot : IAudioBot
     private readonly SemaphoreSlim _connectionGate = new(1, 1);
     private readonly Id _logId;
     private PlaybackSession? _playback;
+    private PlaybackSession? _effectPlayback;
+    private CountingInputStream? _mainPlaybackCountingStream;
     private string? _connectedChannelId;
     private string? _connectedChannelName;
     private BotState _state;
@@ -86,6 +88,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
     public BotState State => _state;
 
     public event Func<AudioBotCommand, Task>? CommandReceived;
+    public event Func<Task>? SoundEffectFinished;
 
     public async Task<IReadOnlyList<AudioChannelInfo>> GetAvailableChannelsAsync(CancellationToken cancellationToken = default)
     {
@@ -166,7 +169,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         }
     }
 
-    public async Task PlayAsync(AudioTrackInfo track, CancellationToken cancellationToken = default)
+    public async Task PlayAsync(AudioTrackInfo track, double? startPositionSeconds = null, CancellationToken cancellationToken = default)
     {
         if (track is null)
         {
@@ -198,13 +201,80 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         try
         {
             await StopPlaybackInternalAsync().ConfigureAwait(false);
-            var playback = StartPlayback(track);
+            var (playback, countingStream) = StartPlayback(track, startPositionSeconds, OnPlaybackCompleted, forEffect: false);
             _playback = playback;
+            _mainPlaybackCountingStream = countingStream;
             _state = _state with { PlaybackState = BotPlaybackState.Playing };
         }
         finally
         {
             _operationGate.Release();
+        }
+    }
+
+    public async Task PlaySoundEffectAsync(AudioTrackInfo track, Action<double>? onMainPlaybackPaused = null, CancellationToken cancellationToken = default)
+    {
+        if (track is null)
+        {
+            throw new ArgumentNullException(nameof(track));
+        }
+
+        if (!File.Exists(track.FilePath))
+        {
+            throw new FileNotFoundException("Audio file not found.", track.FilePath);
+        }
+
+        await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
+        if (_state.ConnectionState == BotConnectionState.Disconnected || _connectedChannelId is null)
+        {
+            throw new InvalidOperationException("Bot is not connected to a channel.");
+        }
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var mainPlayback = _playback;
+            if (mainPlayback is not null && _mainPlaybackCountingStream is not null)
+            {
+                var position = _mainPlaybackCountingStream.BytesRead / 192_000.0;
+                onMainPlaybackPaused?.Invoke(position);
+            }
+            await StopPlaybackInternalAsync().ConfigureAwait(false);
+
+            var (effectSession, _) = StartPlayback(track, null, (session, completedNaturally) =>
+            {
+                if (ReferenceEquals(_effectPlayback, session))
+                {
+                    _effectPlayback = null;
+                }
+                _ = RaiseSoundEffectFinishedAsync();
+            }, forEffect: true);
+            _effectPlayback = effectSession;
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    private Task RaiseSoundEffectFinishedAsync()
+    {
+        var handler = SoundEffectFinished;
+        if (handler is null)
+        {
+            return Task.CompletedTask;
+        }
+        try
+        {
+            var tasks = handler.GetInvocationList()
+                .OfType<Func<Task>>()
+                .Select(h => h());
+            return Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TeamSpeak bot {Label} failed to raise SoundEffectFinished", Label);
+            return Task.CompletedTask;
         }
     }
 
@@ -364,10 +434,18 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         }
     }
 
-    private PlaybackSession StartPlayback(AudioTrackInfo track)
+    private (PlaybackSession session, CountingInputStream? countingStream) StartPlayback(AudioTrackInfo track, double? startPositionSeconds, Action<PlaybackSession, bool> onCompleted, bool forEffect)
     {
-        var process = CreateFfmpegProcess(track.FilePath);
-        var producer = new StreamAudioProducer(process.StandardOutput.BaseStream);
+        var process = CreateFfmpegProcess(track.FilePath, startPositionSeconds);
+        Stream stream = process.StandardOutput.BaseStream;
+        CountingInputStream? countingStream = null;
+        if (!forEffect)
+        {
+            countingStream = new CountingInputStream(stream);
+            stream = countingStream;
+        }
+
+        var producer = new StreamAudioProducer(stream);
         var encoder = new EncoderPipe(Codec.OpusMusic);
         var metaPipe = new StaticMetaPipe();
         metaPipe.SetVoice();
@@ -380,13 +458,14 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         };
         timedPipe.Initialize(encoder, _logId);
 
-        return new PlaybackSession(
+        var session = new PlaybackSession(
             process,
             producer,
             timedPipe,
             encoder,
             metaPipe,
-            OnPlaybackCompleted);
+            onCompleted);
+        return (session, countingStream);
     }
 
     private void OnPlaybackCompleted(PlaybackSession session, bool completedNaturally)
@@ -405,14 +484,21 @@ public sealed class TeamSpeakAudioBot : IAudioBot
 
     private async Task StopPlaybackInternalAsync()
     {
+        _mainPlaybackCountingStream = null;
+
         var playback = _playback;
-        if (playback is null)
+        _playback = null;
+        if (playback is not null)
         {
-            return;
+            await playback.StopAsync().ConfigureAwait(false);
         }
 
-        _playback = null;
-        await playback.StopAsync().ConfigureAwait(false);
+        var effectPlayback = _effectPlayback;
+        _effectPlayback = null;
+        if (effectPlayback is not null)
+        {
+            await effectPlayback.StopAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task HandleTextMessageAsync(TextMessage message)
@@ -447,6 +533,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
             "stop" => new AudioBotCommand(BotCommandType.Stop),
             "next" => new AudioBotCommand(BotCommandType.Next),
             "previous" or "prev" => new AudioBotCommand(BotCommandType.Previous),
+            "effect" when parts.Length >= 2 => new AudioBotCommand(BotCommandType.PlaySoundEffect, parts[1], parts.Length >= 3 ? parts[2] : null),
             "connect" when parts.Length >= 2 => new AudioBotCommand(BotCommandType.Connect, ChannelId: parts[1]),
             "join" => TryBuildJoinCommand(message),
             "disconnect" => new AudioBotCommand(BotCommandType.Disconnect),
@@ -656,7 +743,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         return false;
     }
 
-    private Process CreateFfmpegProcess(string inputPath)
+    private Process CreateFfmpegProcess(string inputPath, double? startPositionSeconds = null)
     {
         var ffmpegPath = TryGetSetting(FfmpegPathSetting, out var configuredPath)
             ? configuredPath
@@ -674,6 +761,11 @@ public sealed class TeamSpeakAudioBot : IAudioBot
         arguments.Add("-hide_banner");
         arguments.Add("-loglevel");
         arguments.Add("error");
+        if (startPositionSeconds.HasValue)
+        {
+            arguments.Add("-ss");
+            arguments.Add(startPositionSeconds.Value.ToString("R", CultureInfo.InvariantCulture));
+        }
         arguments.Add("-i");
         arguments.Add(inputPath);
         arguments.Add("-ac");
@@ -827,6 +919,59 @@ public sealed class TeamSpeakAudioBot : IAudioBot
                 {
                 }
             }
+        }
+    }
+
+    private sealed class CountingInputStream : Stream
+    {
+        private readonly Stream _inner;
+        private long _bytesRead;
+
+        public CountingInputStream(Stream inner)
+        {
+            _inner = inner;
+        }
+
+        public long BytesRead => Interlocked.Read(ref _bytesRead);
+
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            if (read > 0)
+            {
+                Interlocked.Add(ref _bytesRead, read);
+            }
+            return read;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            var read = await _inner.ReadAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            if (read > 0)
+            {
+                Interlocked.Add(ref _bytesRead, read);
+            }
+            return read;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

@@ -75,7 +75,12 @@ public enum BotCommandType
     /// <summary>
     /// Уведомление о завершении текущего трека.
     /// </summary>
-    PlaybackFinished = 7
+    PlaybackFinished = 7,
+
+    /// <summary>
+    /// Проиграть звуковой эффект поверх текущего воспроизведения.
+    /// </summary>
+    PlaySoundEffect = 8
 }
 
 /// <summary>

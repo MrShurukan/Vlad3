@@ -57,7 +57,7 @@ public sealed class BotControlController : ControllerBase
         [FromBody] PlayBotRequest request,
         CancellationToken cancellationToken)
     {
-        await _botManager.PlayAsync(botId, request.PlaylistId, request.TrackId, cancellationToken);
+        await _botManager.PlayAsync(botId, request.PlaylistId, request.TrackId, null, cancellationToken);
         return NoContent();
     }
 
@@ -79,6 +79,16 @@ public sealed class BotControlController : ControllerBase
     public async Task<IActionResult> Previous([FromRoute] string botId, CancellationToken cancellationToken)
     {
         await _botManager.PreviousAsync(botId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("playEffect")]
+    public async Task<IActionResult> PlayEffect(
+        [FromRoute] string botId,
+        [FromBody] PlayBotRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _botManager.PlaySoundEffectAsync(botId, request.PlaylistId, request.TrackId, cancellationToken);
         return NoContent();
     }
     

@@ -31,7 +31,9 @@ public interface IAudioBot : IAsyncDisposable
     /// <summary>
     /// Начать воспроизведение конкретного трека.
     /// </summary>
-    Task PlayAsync(AudioTrackInfo track, CancellationToken cancellationToken = default);
+    /// <param name="track">Трек для воспроизведения.</param>
+    /// <param name="startPositionSeconds">Позиция начала в секундах (для возобновления с места). Если задана, используется ffmpeg -ss перед -i.</param>
+    Task PlayAsync(AudioTrackInfo track, double? startPositionSeconds = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Остановить воспроизведение.
@@ -39,9 +41,21 @@ public interface IAudioBot : IAsyncDisposable
     Task StopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Проиграть звуковой эффект поверх текущего воспроизведения. Если идёт воспроизведение — останавливается (без PlaybackFinished),
+    /// перед остановкой вызывается <paramref name="onMainPlaybackPaused"/> с текущей позицией в секундах, затем проигрывается эффект.
+    /// По окончании эффекта вызывается событие <see cref="SoundEffectFinished"/>.
+    /// </summary>
+    Task PlaySoundEffectAsync(AudioTrackInfo track, Action<double>? onMainPlaybackPaused = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Событие команд, пришедших со стороны платформы (чат/слэш-команды).
     /// </summary>
     event Func<AudioBotCommand, Task>? CommandReceived;
+
+    /// <summary>
+    /// Событие: звуковой эффект завершён; вызывающая сторона может возобновить основной трек через PlayAsync с позицией.
+    /// </summary>
+    event Func<Task>? SoundEffectFinished;
 
     /// <summary>
     /// Зарегистрировать команды, доступные в платформе.

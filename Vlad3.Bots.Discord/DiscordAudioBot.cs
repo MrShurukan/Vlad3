@@ -29,6 +29,7 @@ public sealed class DiscordAudioBot : IAudioBot
     private Task? _startTask;
     private VoiceClient? _voiceClient;
     private PlaybackSession? _playback;
+    private PlaybackSession? _effectPlayback;
     private string? _connectedChannelId;
     private string? _connectedChannelName;
     private ulong? _connectedGuildId;
@@ -65,6 +66,7 @@ public sealed class DiscordAudioBot : IAudioBot
     public BotState State => _state;
 
     public event Func<AudioBotCommand, Task>? CommandReceived;
+    public event Func<Task>? SoundEffectFinished;
 
     public async Task<IReadOnlyList<AudioChannelInfo>> GetAvailableChannelsAsync(CancellationToken cancellationToken = default)
     {
@@ -150,7 +152,7 @@ public sealed class DiscordAudioBot : IAudioBot
         }
     }
 
-    public async Task PlayAsync(AudioTrackInfo track, CancellationToken cancellationToken = default)
+    public async Task PlayAsync(AudioTrackInfo track, double? startPositionSeconds = null, CancellationToken cancellationToken = default)
     {
         if (track is null)
         {
@@ -185,7 +187,7 @@ public sealed class DiscordAudioBot : IAudioBot
             playback.Start(
                 async token =>
                 {
-                    using var process = CreateFfmpegProcess(track.FilePath);
+                    using var process = CreateFfmpegProcess(track.FilePath, startPositionSeconds);
                     playback.AttachProcess(process);
 
                     await using var opusStream = new OpusEncodeStream(
@@ -194,7 +196,14 @@ public sealed class DiscordAudioBot : IAudioBot
                         VoiceChannels.Stereo,
                         OpusApplication.Audio);
 
-                    await process.StandardOutput.BaseStream.CopyToAsync(opusStream, token).ConfigureAwait(false);
+                    const int bufferSize = 8192;
+                    var buffer = new byte[bufferSize];
+                    int read;
+                    while ((read = await process.StandardOutput.BaseStream.ReadAsync(buffer.AsMemory(0, bufferSize), token).ConfigureAwait(false)) > 0)
+                    {
+                        playback.AddBytesRead(read);
+                        await opusStream.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                    }
                     await opusStream.FlushAsync(token).ConfigureAwait(false);
                     await process.WaitForExitAsync(token).ConfigureAwait(false);
                 },
@@ -216,6 +225,95 @@ public sealed class DiscordAudioBot : IAudioBot
         finally
         {
             _voiceGate.Release();
+        }
+    }
+
+    public async Task PlaySoundEffectAsync(AudioTrackInfo track, Action<double>? onMainPlaybackPaused = null, CancellationToken cancellationToken = default)
+    {
+        if (track is null)
+        {
+            throw new ArgumentNullException(nameof(track));
+        }
+
+        if (!File.Exists(track.FilePath))
+        {
+            throw new FileNotFoundException("Audio file not found.", track.FilePath);
+        }
+
+        await EnsureStartedAsync().ConfigureAwait(false);
+        if (_voiceClient is null)
+        {
+            throw new InvalidOperationException("Bot is not connected to a voice channel.");
+        }
+
+        await _voiceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var mainPlayback = _playback;
+            if (mainPlayback is not null)
+            {
+                var position = mainPlayback.PositionSeconds;
+                onMainPlaybackPaused?.Invoke(position);
+            }
+            await StopPlaybackInternalAsync().ConfigureAwait(false);
+
+            var voiceClient = _voiceClient;
+            await voiceClient!.EnterSpeakingStateAsync(new SpeakingProperties(SpeakingFlags.Microphone), cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            var effectSession = new PlaybackSession(track);
+            _effectPlayback = effectSession;
+
+            effectSession.Start(
+                async token =>
+                {
+                    using var process = CreateFfmpegProcess(track.FilePath, null);
+                    effectSession.AttachProcess(process);
+
+                    await using var opusStream = new OpusEncodeStream(
+                        voiceClient.CreateOutputStream(),
+                        PcmFormat.Short,
+                        VoiceChannels.Stereo,
+                        OpusApplication.Audio);
+
+                    await process.StandardOutput.BaseStream.CopyToAsync(opusStream, token).ConfigureAwait(false);
+                    await opusStream.FlushAsync(token).ConfigureAwait(false);
+                    await process.WaitForExitAsync(token).ConfigureAwait(false);
+                },
+                completedNaturally =>
+                {
+                    if (_effectPlayback == effectSession)
+                    {
+                        _effectPlayback = null;
+                    }
+                    _ = RaiseSoundEffectFinishedAsync();
+                },
+                exception => _logger.LogWarning(exception, "Discord bot {Label} failed to play sound effect {Track}", Label, track.Name));
+        }
+        finally
+        {
+            _voiceGate.Release();
+        }
+    }
+
+    private Task RaiseSoundEffectFinishedAsync()
+    {
+        var handler = SoundEffectFinished;
+        if (handler is null)
+        {
+            return Task.CompletedTask;
+        }
+        try
+        {
+            var tasks = handler.GetInvocationList()
+                .OfType<Func<Task>>()
+                .Select(h => h());
+            return Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Discord bot {Label} failed to raise SoundEffectFinished", Label);
+            return Task.CompletedTask;
         }
     }
 
@@ -338,6 +436,12 @@ public sealed class DiscordAudioBot : IAudioBot
                 "Previous track",
                 new Func<ApplicationCommandContext, Task<string>>(context =>
                     RaiseCommandAsync(context, new AudioBotCommand(BotCommandType.Previous), "Previous track."))));
+
+        _commandService.AddSlashCommand(
+            CreateGuildCommand(
+                "effect",
+                "Play sound effect over current playback",
+                new Func<ApplicationCommandContext, string, string?, Task<string>>(EffectCommandAsync)));
     }
 
     private static SlashCommandBuilder CreateGuildCommand(string name, string description, Delegate handler)
@@ -373,6 +477,19 @@ public sealed class DiscordAudioBot : IAudioBot
             context,
             new AudioBotCommand(BotCommandType.Play, playlistId.Trim(), trackId),
             $"Playing playlist {playlistId}.");
+    }
+
+    private Task<string> EffectCommandAsync(ApplicationCommandContext context, string playlistId, string? trackId = null)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            return Task.FromResult("PlaylistId is required.");
+        }
+
+        return RaiseCommandAsync(
+            context,
+            new AudioBotCommand(BotCommandType.PlaySoundEffect, playlistId.Trim(), trackId),
+            "Playing sound effect.");
     }
 
     private async Task<string> RaiseCommandAsync(ApplicationCommandContext context, AudioBotCommand command, string successMessage)
@@ -509,7 +626,7 @@ public sealed class DiscordAudioBot : IAudioBot
         return ulong.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out value);
     }
 
-    private Process CreateFfmpegProcess(string inputPath)
+    private Process CreateFfmpegProcess(string inputPath, double? startPositionSeconds = null)
     {
         var ffmpegPath = _configuration.Settings.TryGetValue(FfmpegPathSetting, out var configuredPath)
             && !string.IsNullOrWhiteSpace(configuredPath)
@@ -528,6 +645,11 @@ public sealed class DiscordAudioBot : IAudioBot
         arguments.Add("-hide_banner");
         arguments.Add("-loglevel");
         arguments.Add("error");
+        if (startPositionSeconds.HasValue)
+        {
+            arguments.Add("-ss");
+            arguments.Add(startPositionSeconds.Value.ToString("R", CultureInfo.InvariantCulture));
+        }
         arguments.Add("-i");
         arguments.Add(inputPath);
         arguments.Add("-ac");
@@ -560,13 +682,18 @@ public sealed class DiscordAudioBot : IAudioBot
     private async Task StopPlaybackInternalAsync()
     {
         var playback = _playback;
-        if (playback is null)
+        _playback = null;
+        if (playback is not null)
         {
-            return;
+            await playback.StopAsync().ConfigureAwait(false);
         }
 
-        _playback = null;
-        await playback.StopAsync().ConfigureAwait(false);
+        var effectPlayback = _effectPlayback;
+        _effectPlayback = null;
+        if (effectPlayback is not null)
+        {
+            await effectPlayback.StopAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task DisconnectInternalAsync(CancellationToken cancellationToken)
@@ -601,16 +728,29 @@ public sealed class DiscordAudioBot : IAudioBot
 
     private sealed class PlaybackSession
     {
+        private const double BytesPerSecondPcm = 48000 * 2 * 2; // 48kHz stereo s16le
+
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private Task? _task;
         private Process? _process;
         private int _stopRequested;
+        private long _bytesRead;
 
         public PlaybackSession(AudioTrackInfo track)
         {
         }
 
         public CancellationToken CancellationToken => _cancellationTokenSource.Token;
+
+        public double PositionSeconds => Interlocked.Read(ref _bytesRead) / BytesPerSecondPcm;
+
+        public void AddBytesRead(int count)
+        {
+            if (count > 0)
+            {
+                Interlocked.Add(ref _bytesRead, count);
+            }
+        }
 
         public void AttachProcess(Process process)
         {
