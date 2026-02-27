@@ -15,6 +15,7 @@ public sealed class BotManager : IBotManager
     private readonly ILogger<BotManager> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, BotRuntime> _bots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Func<Task>> _soundEffectFinishedHandlersByBotId = new(StringComparer.OrdinalIgnoreCase);
     private bool _initialized;
 
     public BotManager(
@@ -282,6 +283,14 @@ public sealed class BotManager : IBotManager
         handler = async () =>
         {
             runtime.Bot.SoundEffectFinished -= handler!;
+            lock (_soundEffectFinishedHandlersByBotId)
+            {
+                if (_soundEffectFinishedHandlersByBotId.TryGetValue(botId, out var current) && current == handler)
+                {
+                    _soundEffectFinishedHandlersByBotId.Remove(botId);
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(savedPlaylistId) || string.IsNullOrWhiteSpace(savedTrackId))
             {
                 return;
@@ -312,6 +321,15 @@ public sealed class BotManager : IBotManager
 
             await PlayAsync(botId, savedPlaylistId, savedTrackId, resumePositionSeconds, CancellationToken.None).ConfigureAwait(false);
         };
+
+        lock (_soundEffectFinishedHandlersByBotId)
+        {
+            if (_soundEffectFinishedHandlersByBotId.TryGetValue(botId, out var previousHandler) && previousHandler is not null)
+            {
+                runtime.Bot.SoundEffectFinished -= previousHandler;
+            }
+            _soundEffectFinishedHandlersByBotId[botId] = handler;
+        }
         runtime.Bot.SoundEffectFinished += handler;
 
         await runtime.Bot.PlaySoundEffectAsync(trackInfo, pos =>
