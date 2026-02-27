@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using Vlad3.Application.Errors;
 using Vlad3.Application.Playlists;
@@ -273,22 +274,50 @@ public sealed class BotManager : IBotManager
 
         var savedPlaylistId = runtime.Playback.PlaylistId;
         var savedTrackId = runtime.Playback.TrackId;
-        var savedPausePositionSeconds = 0.0;
+        var savedPausePositionMs = 0L;
         var effectDuration = effectDurationSeconds.Value;
+        var ffprobePathForResume = ffprobePath;
 
         Func<Task>? handler = null;
         handler = async () =>
         {
             runtime.Bot.SoundEffectFinished -= handler!;
-            if (!string.IsNullOrWhiteSpace(savedPlaylistId) && !string.IsNullOrWhiteSpace(savedTrackId))
+            if (string.IsNullOrWhiteSpace(savedPlaylistId) || string.IsNullOrWhiteSpace(savedTrackId))
             {
-                var resumePositionSeconds = savedPausePositionSeconds + effectDuration;
-                await PlayAsync(botId, savedPlaylistId, savedTrackId, resumePositionSeconds, CancellationToken.None).ConfigureAwait(false);
+                return;
             }
+
+            var pausePositionSeconds = Volatile.Read(ref savedPausePositionMs) / 1000.0;
+            var rawResumePositionSeconds = pausePositionSeconds + effectDuration;
+
+            double resumePositionSeconds;
+            try
+            {
+                var mainTrackInfo = await _playlistService.GetTrackFileAsync(savedPlaylistId, savedTrackId, CancellationToken.None).ConfigureAwait(false);
+                var mainDurationSeconds = await AudioDurationHelper.GetDurationSecondsAsync(mainTrackInfo.FilePath, ffprobePathForResume, CancellationToken.None).ConfigureAwait(false);
+                if (mainDurationSeconds.HasValue && mainDurationSeconds.Value > 0)
+                {
+                    var maxPosition = Math.Max(0, mainDurationSeconds.Value - 0.01);
+                    resumePositionSeconds = Math.Min(rawResumePositionSeconds, maxPosition);
+                }
+                else
+                {
+                    resumePositionSeconds = Math.Max(0, rawResumePositionSeconds);
+                }
+            }
+            catch
+            {
+                resumePositionSeconds = Math.Max(0, rawResumePositionSeconds);
+            }
+
+            await PlayAsync(botId, savedPlaylistId, savedTrackId, resumePositionSeconds, CancellationToken.None).ConfigureAwait(false);
         };
         runtime.Bot.SoundEffectFinished += handler;
 
-        await runtime.Bot.PlaySoundEffectAsync(trackInfo, pos => savedPausePositionSeconds = pos, cancellationToken).ConfigureAwait(false);
+        await runtime.Bot.PlaySoundEffectAsync(trackInfo, pos =>
+        {
+            Volatile.Write(ref savedPausePositionMs, (long)(pos * 1000.0));
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task StopAsync(string botId, CancellationToken cancellationToken = default)
