@@ -42,6 +42,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
     private PlaybackSession? _playback;
     private PlaybackSession? _effectPlayback;
     private CountingInputStream? _mainPlaybackCountingStream;
+    private double _mainPlaybackStartPositionSeconds;
     private string? _connectedChannelId;
     private string? _connectedChannelName;
     private BotState _state;
@@ -204,6 +205,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
             var (playback, countingStream) = StartPlayback(track, startPositionSeconds, OnPlaybackCompleted, forEffect: false);
             _playback = playback;
             _mainPlaybackCountingStream = countingStream;
+            _mainPlaybackStartPositionSeconds = startPositionSeconds ?? 0;
             _state = _state with { PlaybackState = BotPlaybackState.Playing };
         }
         finally
@@ -236,7 +238,8 @@ public sealed class TeamSpeakAudioBot : IAudioBot
             var mainPlayback = _playback;
             if (mainPlayback is not null && _mainPlaybackCountingStream is not null)
             {
-                var position = _mainPlaybackCountingStream.BytesRead / 192_000.0;
+                var offsetFromStart = _mainPlaybackCountingStream.BytesRead / 192_000.0;
+                var position = _mainPlaybackStartPositionSeconds + offsetFromStart;
                 onMainPlaybackPaused?.Invoke(position);
             }
             await StopPlaybackInternalAsync().ConfigureAwait(false);
@@ -485,6 +488,7 @@ public sealed class TeamSpeakAudioBot : IAudioBot
     private async Task StopPlaybackInternalAsync()
     {
         _mainPlaybackCountingStream = null;
+        _mainPlaybackStartPositionSeconds = 0;
 
         var playback = _playback;
         _playback = null;
@@ -784,10 +788,16 @@ public sealed class TeamSpeakAudioBot : IAudioBot
 
         process.ErrorDataReceived += (_, args) =>
         {
-            if (!string.IsNullOrWhiteSpace(args.Data))
+            if (string.IsNullOrWhiteSpace(args.Data))
             {
-                _logger.LogWarning("ffmpeg: {Message}", args.Data);
+                return;
             }
+            // Broken pipe is expected when we stop playback and close the stream
+            if (args.Data.Contains("Broken pipe", StringComparison.Ordinal))
+            {
+                return;
+            }
+            _logger.LogWarning("ffmpeg: {Message}", args.Data);
         };
 
         process.Start();

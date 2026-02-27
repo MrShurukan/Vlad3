@@ -30,6 +30,7 @@ public sealed class DiscordAudioBot : IAudioBot
     private VoiceClient? _voiceClient;
     private PlaybackSession? _playback;
     private PlaybackSession? _effectPlayback;
+    private double _mainPlaybackStartPositionSeconds;
     private string? _connectedChannelId;
     private string? _connectedChannelName;
     private ulong? _connectedGuildId;
@@ -182,6 +183,7 @@ public sealed class DiscordAudioBot : IAudioBot
 
             var playback = new PlaybackSession(track);
             _playback = playback;
+            _mainPlaybackStartPositionSeconds = startPositionSeconds ?? 0;
             _state = _state with { PlaybackState = BotPlaybackState.Playing };
 
             playback.Start(
@@ -252,7 +254,7 @@ public sealed class DiscordAudioBot : IAudioBot
             var mainPlayback = _playback;
             if (mainPlayback is not null)
             {
-                var position = mainPlayback.PositionSeconds;
+                var position = _mainPlaybackStartPositionSeconds + mainPlayback.PositionSeconds;
                 onMainPlaybackPaused?.Invoke(position);
             }
             await StopPlaybackInternalAsync().ConfigureAwait(false);
@@ -681,6 +683,7 @@ public sealed class DiscordAudioBot : IAudioBot
 
     private async Task StopPlaybackInternalAsync()
     {
+        _mainPlaybackStartPositionSeconds = 0;
         var playback = _playback;
         _playback = null;
         if (playback is not null)
