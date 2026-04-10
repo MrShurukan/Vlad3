@@ -193,7 +193,7 @@ public sealed class DiscordAudioBot : IAudioBot
                     playback.AttachProcess(process);
 
                     await using var opusStream = new OpusEncodeStream(
-                        voiceClient.CreateOutputStream(),
+                        voiceClient.CreateVoiceStream(),
                         PcmFormat.Short,
                         VoiceChannels.Stereo,
                         OpusApplication.Audio);
@@ -273,7 +273,7 @@ public sealed class DiscordAudioBot : IAudioBot
                     effectSession.AttachProcess(process);
 
                     await using var opusStream = new OpusEncodeStream(
-                        voiceClient.CreateOutputStream(),
+                        voiceClient.CreateVoiceStream(),
                         PcmFormat.Short,
                         VoiceChannels.Stereo,
                         OpusApplication.Audio);
