@@ -791,16 +791,7 @@ public sealed class DiscordAudioBot : IAudioBot
         {
             Interlocked.Exchange(ref _stopRequested, 1);
             _cancellationTokenSource.Cancel();
-            if (_process is { HasExited: false })
-            {
-                try
-                {
-                    _process.Kill(true);
-                }
-                catch
-                {
-                }
-            }
+            TryKillAttachedProcess();
 
             if (_task is not null)
             {
@@ -814,6 +805,30 @@ public sealed class DiscordAudioBot : IAudioBot
             }
         }
 
+        private void TryKillAttachedProcess()
+        {
+            var process = _process;
+            if (process is null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Process was never started, or already disposed on another thread.
+            }
+            catch
+            {
+            }
+        }
+
         private void CleanupProcess()
         {
             if (_process is null)
@@ -823,17 +838,19 @@ public sealed class DiscordAudioBot : IAudioBot
 
             try
             {
-                if (!_process.HasExited)
-                {
-                    _process.Kill(true);
-                }
-            }
-            catch
-            {
+                TryKillAttachedProcess();
             }
             finally
             {
-                _process.Dispose();
+                try
+                {
+                    _process?.Dispose();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
+                _process = null;
             }
         }
     }
