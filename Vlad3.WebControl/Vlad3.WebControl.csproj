@@ -26,4 +26,6 @@
     <ProjectReference Include="..\Vlad3.Core\Vlad3.Core.csproj" />
   </ItemGroup>
 
+  <Import Project="..\Vlad3.Bots.Discord\LibDave.targets" />
+
 </Project>

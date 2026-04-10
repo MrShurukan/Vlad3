@@ -1,0 +1,111 @@
+<Project>
+  <!--
+    NetCord voice requires libdave (Discord Audio/Video Encryption). See:
+    https://netcord.dev/guides/basic-concepts/installing-native-dependencies.html
+    This target downloads prebuilt binaries from https://github.com/discord/libdave/releases
+    into the project's output directory so P/Invoke can load them at runtime.
+    Set DisableLibDaveNativeFetch=true to skip (you must place the native library yourself).
+  -->
+  <PropertyGroup>
+    <LibDaveReleaseTag>v1.1.1/cpp</LibDaveReleaseTag>
+    <LibDaveBaseUrl>https://github.com/discord/libdave/releases/download/$(LibDaveReleaseTag)</LibDaveBaseUrl>
+    <LibDaveCacheDir>$(MSBuildThisFileDirectory).libdave-cache</LibDaveCacheDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(DisableLibDaveNativeFetch)' != 'true'">
+    <_HostOsArch>$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)</_HostOsArch>
+    <_LibDaveRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LibDaveRid>
+    <_LibDaveRid Condition="'$(LibDaveRuntimeIdentifier)' != ''">$(LibDaveRuntimeIdentifier)</_LibDaveRid>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(DisableLibDaveNativeFetch)' != 'true' and '$(_LibDaveRid)' == ''">
+    <_LibDaveRid Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(_HostOsArch)' == 'X64'">linux-x64</_LibDaveRid>
+    <_LibDaveRid Condition="$([MSBuild]::IsOSPlatform('Linux')) and '$(_HostOsArch)' == 'Arm64'">linux-arm64</_LibDaveRid>
+    <_LibDaveRid Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(_HostOsArch)' == 'X64'">win-x64</_LibDaveRid>
+    <_LibDaveRid Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$(_HostOsArch)' == 'X64'">osx-x64</_LibDaveRid>
+    <_LibDaveRid Condition="$([MSBuild]::IsOSPlatform('OSX')) and '$(_HostOsArch)' == 'Arm64'">osx-arm64</_LibDaveRid>
+  </PropertyGroup>
+
+  <Choose>
+    <When Condition="'$(_LibDaveRid)' == 'linux-x64'">
+      <PropertyGroup>
+        <LibDaveDownloadZipName>libdave-Linux-X64-boringssl.zip</LibDaveDownloadZipName>
+      </PropertyGroup>
+    </When>
+    <When Condition="'$(_LibDaveRid)' == 'linux-arm64'">
+      <PropertyGroup>
+        <LibDaveDownloadZipName>libdave-Linux-ARM64-boringssl.zip</LibDaveDownloadZipName>
+      </PropertyGroup>
+    </When>
+    <When Condition="'$(_LibDaveRid)' == 'win-x64'">
+      <PropertyGroup>
+        <LibDaveDownloadZipName>libdave-Windows-X64-boringssl.zip</LibDaveDownloadZipName>
+      </PropertyGroup>
+    </When>
+    <When Condition="'$(_LibDaveRid)' == 'osx-x64'">
+      <PropertyGroup>
+        <LibDaveDownloadZipName>libdave-macOS-X64-boringssl.zip</LibDaveDownloadZipName>
+      </PropertyGroup>
+    </When>
+    <When Condition="'$(_LibDaveRid)' == 'osx-arm64'">
+      <PropertyGroup>
+        <LibDaveDownloadZipName>libdave-macOS-ARM64-boringssl.zip</LibDaveDownloadZipName>
+      </PropertyGroup>
+    </When>
+  </Choose>
+
+  <Target Name="EnsureLibDaveNativeLibrary"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="'$(DisableLibDaveNativeFetch)' != 'true' and '$(LibDaveDownloadZipName)' != ''">
+    <PropertyGroup>
+      <LibDaveZipPath>$(LibDaveCacheDir)\$(_LibDaveRid)\libdave.zip</LibDaveZipPath>
+      <LibDaveExtractDir>$(LibDaveCacheDir)\$(_LibDaveRid)\extract</LibDaveExtractDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(LibDaveCacheDir)\$(_LibDaveRid)" />
+
+    <DownloadFile SourceUrl="$(LibDaveBaseUrl)/$(LibDaveDownloadZipName)"
+                  DestinationFolder="$(LibDaveCacheDir)\$(_LibDaveRid)"
+                  DestinationFileName="libdave.zip"
+                  SkipUnchangedFiles="true" />
+
+    <RemoveDir Directories="$(LibDaveExtractDir)" Condition="Exists('$(LibDaveExtractDir)')" />
+    <MakeDir Directories="$(LibDaveExtractDir)" />
+
+    <Unzip SourceFiles="$(LibDaveZipPath)" DestinationFolder="$(LibDaveExtractDir)" OverwriteReadOnlyFiles="true" />
+
+    <ItemGroup>
+      <_LibDaveNative Include="$(LibDaveExtractDir)\**\libdave.so" />
+      <_LibDaveNative Include="$(LibDaveExtractDir)\**\libdave.dll" />
+      <_LibDaveNative Include="$(LibDaveExtractDir)\**\libdave.dylib" />
+    </ItemGroup>
+
+    <Error Condition="'@(_LibDaveNative)' == ''"
+           Text="libdave archive did not contain a native library (expected libdave.so, libdave.dll, or libdave.dylib). RID=$(_LibDaveRid)." />
+
+    <Copy SourceFiles="@(_LibDaveNative)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- dotnet publish does not copy arbitrary files from OutputPath; add native lib explicitly. -->
+  <Target Name="IncludeLibDaveInPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="EnsureLibDaveNativeLibrary"
+          Condition="'$(DisableLibDaveNativeFetch)' != 'true' and '$(LibDaveDownloadZipName)' != ''">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutputPath)libdave.so" Condition="Exists('$(OutputPath)libdave.so')">
+        <RelativePath>libdave.so</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OutputPath)libdave.dll" Condition="Exists('$(OutputPath)libdave.dll')">
+        <RelativePath>libdave.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OutputPath)libdave.dylib" Condition="Exists('$(OutputPath)libdave.dylib')">
+        <RelativePath>libdave.dylib</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>
